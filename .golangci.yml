@@ -1,0 +1,21 @@
+version: '2'
+run:
+  timeout: 3m
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - unused
+    - staticcheck
+    - govet
+    - containedctx
+    - contextcheck
+    - gosec
+    - gocritic
+    - nolintlint
+    - errorlint
+    - errname
+    - bodyclose
+    - sqlclosecheck
+    - rowserrcheck
+    - revive
