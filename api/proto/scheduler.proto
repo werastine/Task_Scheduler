@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package scheduler.v1;
+
+option go_package = "github.com/werastine/Task_Scheduler/pkg/api/scheduler/v1;schedulerv1";
+
+// Scheduler
+service Scheduler {
+  // PushRequest sends request from client and returns response with operation status and id
+  rpc PushRequest (Request) returns (Response);
+}
+
+message Request {
+  bytes payload = 1;
+  string type = 2;
+  
+  oneof schedule {
+    ScheduleNow now = 3;
+    ScheduleNowWithRepeat now_repeat = 4;
+    ScheduleAfter after = 5;
+    ScheduleAfterWithRepeat after_repeat = 6;
+  }
+}
+
+message ScheduleNow {}
+
+message ScheduleNowWithRepeat {
+  int32 repeat_times = 1;
+  int32 repeat_every_seconds = 2;
+}
+
+message ScheduleAfter {
+    int32 execute_after_seconds = 1;
+}
+
+message ScheduleAfterWithRepeat {
+    int32 execute_after_seconds = 1;
+    int32 repeat_times = 2;
+    int32 repeat_every_seconds = 3;
+}
+
+message Response {
+  string status = 1;
+  string task_id = 2;
+}
