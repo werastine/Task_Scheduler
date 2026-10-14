@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -9,6 +10,8 @@ import (
 	"github.com/google/uuid"
 	schedulerv1 "github.com/werastine/Task_Scheduler/pkg/api/scheduler/v1"
 	"github.com/werastine/Task_Scheduler/pkg/scheduler"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type Server struct {
@@ -26,25 +29,22 @@ func NewServer(engine *scheduler.Engine) *Server {
 func (s *Server) PushRequest(ctx context.Context, req *schedulerv1.Request) (*schedulerv1.Response, error) {
 	taskID := uuid.NewString()
 
+	var err error
+
 	switch sch := req.Schedule.(type) {
 	case *schedulerv1.Request_Now:
-		err := s.sender.SendNow(
+		err = s.sender.SendNow(
 			ctx,
 			req.GetType(),
 			req.GetPayload(),
 			taskID,
 		)
 
-		if err != nil {
-			slog.ErrorContext(ctx, "failed to use SendNow function", "err", err)
-			return nil, fmt.Errorf("somethig went wrong")
-		}
-
 	case *schedulerv1.Request_NowRepeat:
 		repeatTimes := int(sch.NowRepeat.RepeatTimes)
 		repeatEvery := time.Duration(sch.NowRepeat.RepeatEverySeconds) * time.Second
 
-		err := s.sender.SendNowWithRepeat(
+		err = s.sender.SendNowWithRepeat(
 			ctx,
 			repeatTimes,
 			repeatEvery,
@@ -53,27 +53,17 @@ func (s *Server) PushRequest(ctx context.Context, req *schedulerv1.Request) (*sc
 			taskID,
 		)
 
-		if err != nil {
-			slog.ErrorContext(ctx, "failed to use SendNowWithRepeat function", "err", err)
-			return nil, fmt.Errorf("somethig went wrong")
-		}
-
 	case *schedulerv1.Request_After:
 		delay := time.Duration(sch.After.ExecuteAfterSeconds) * time.Second
 		sendAfter := time.Now().Add(delay)
 
-		err := s.sender.SendAfter(
+		err = s.sender.SendAfter(
 			ctx,
 			sendAfter,
 			req.Type,
 			req.Payload,
 			taskID,
 		)
-
-		if err != nil {
-			slog.ErrorContext(ctx, "failed to use SendAfter function", "err", err)
-			return nil, fmt.Errorf("somethig went wrong")
-		}
 
 	case *schedulerv1.Request_AfterRepeat:
 		delay := time.Duration(sch.AfterRepeat.ExecuteAfterSeconds) * time.Second
@@ -81,7 +71,7 @@ func (s *Server) PushRequest(ctx context.Context, req *schedulerv1.Request) (*sc
 		repeatTimes := int(sch.AfterRepeat.RepeatTimes)
 		repeatEvery := time.Duration(sch.AfterRepeat.RepeatEverySeconds) * time.Second
 
-		err := s.sender.SendAfterWithRepeat(
+		err = s.sender.SendAfterWithRepeat(
 			ctx,
 			sendAfter,
 			repeatTimes,
@@ -90,18 +80,22 @@ func (s *Server) PushRequest(ctx context.Context, req *schedulerv1.Request) (*sc
 			req.Payload,
 			taskID,
 		)
-		if err != nil {
-			slog.ErrorContext(ctx, "failed to use SendAfterWithRepeat function", "err", err)
-			return nil, fmt.Errorf("somethig went wrong")
-		}
 
 	default:
-		return nil, fmt.Errorf("didn't recieve any fields")
+		return nil, fmt.Errorf("invalid schedule type provided")
 	}
 
-	if ctx.Err() != nil {
-		slog.WarnContext(ctx, "Context is done")
-		return nil, fmt.Errorf("user leaved")
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			slog.WarnContext(ctx, "task creation canceled", "taskID", taskID, "err", err)
+			return nil, status.Error(codes.Canceled, "request canceled")
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			slog.WarnContext(ctx, "task creation timed out", "taskID", taskID, "err", err)
+			return nil, status.Error(codes.DeadlineExceeded, "deadline exceeded")
+		}
+		slog.ErrorContext(ctx, "failed to create task", "taskID", taskID, "err", err)
+		return nil, status.Error(codes.Internal, "internal server error")
 	}
 
 	return &schedulerv1.Response{
