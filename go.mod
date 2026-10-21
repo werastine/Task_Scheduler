@@ -3,6 +3,7 @@ module github.com/werastine/Task_Scheduler
 go 1.26.1
 
 require (
+	github.com/golang-migrate/migrate/v4 v4.20.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
 	google.golang.org/grpc v1.84.0
@@ -10,7 +11,6 @@ require (
 )
 
 require (
-	github.com/golang-migrate/migrate v3.5.4+incompatible // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
