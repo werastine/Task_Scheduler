@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package scheduler.v1;
 
-option go_package = "github.com/werastine/Task_Scheduler/pkg/api/scheduler/v1;schedulerv1";
+option go_package = "github.com/werastine/Task_Scheduler/internal/pb;pb";
 
 // Scheduler
 service Scheduler {

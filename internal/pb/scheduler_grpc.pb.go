@@ -4,7 +4,7 @@
 // - protoc             v7.36.1
 // source: scheduler.proto
 
-package schedulerv1
+package pb
 
 import (
 	context "context"

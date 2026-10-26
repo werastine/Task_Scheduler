@@ -4,7 +4,7 @@
 // 	protoc        v7.36.1
 // source: scheduler.proto
 
-package schedulerv1
+package pb
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -424,7 +424,7 @@ const file_scheduler_proto_rawDesc = "" +
 	"\x06status\x18\x01 \x01(\tR\x06status\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\tR\x06taskId2I\n" +
 	"\tScheduler\x12<\n" +
-	"\vPushRequest\x12\x15.scheduler.v1.Request\x1a\x16.scheduler.v1.ResponseBFZDgithub.com/werastine/Task_Scheduler/pkg/api/scheduler/v1;schedulerv1b\x06proto3"
+	"\vPushRequest\x12\x15.scheduler.v1.Request\x1a\x16.scheduler.v1.ResponseB4Z2github.com/werastine/Task_Scheduler/internal/pb;pbb\x06proto3"
 
 var (
 	file_scheduler_proto_rawDescOnce sync.Once

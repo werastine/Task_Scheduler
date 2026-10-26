@@ -8,14 +8,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	schedulerv1 "github.com/werastine/Task_Scheduler/pkg/api/scheduler/v1"
+	"github.com/werastine/Task_Scheduler/internal/pb"
 	"github.com/werastine/Task_Scheduler/pkg/scheduler"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type Server struct {
-	schedulerv1.UnimplementedSchedulerServer
+	pb.UnimplementedSchedulerServer
 
 	sender scheduler.Sender
 }
@@ -26,13 +26,13 @@ func NewServer(engine *scheduler.Engine) *Server {
 	}
 }
 
-func (s *Server) PushRequest(ctx context.Context, req *schedulerv1.Request) (*schedulerv1.Response, error) {
+func (s *Server) PushRequest(ctx context.Context, req *pb.Request) (*pb.Response, error) {
 	taskID := uuid.NewString()
 
 	var err error
 
 	switch sch := req.Schedule.(type) {
-	case *schedulerv1.Request_Now:
+	case *pb.Request_Now:
 		err = s.sender.SendNow(
 			ctx,
 			req.GetType(),
@@ -40,7 +40,7 @@ func (s *Server) PushRequest(ctx context.Context, req *schedulerv1.Request) (*sc
 			taskID,
 		)
 
-	case *schedulerv1.Request_NowRepeat:
+	case *pb.Request_NowRepeat:
 		repeatTimes := int(sch.NowRepeat.RepeatTimes)
 		repeatEvery := time.Duration(sch.NowRepeat.RepeatEverySeconds) * time.Second
 
@@ -53,7 +53,7 @@ func (s *Server) PushRequest(ctx context.Context, req *schedulerv1.Request) (*sc
 			taskID,
 		)
 
-	case *schedulerv1.Request_After:
+	case *pb.Request_After:
 		delay := time.Duration(sch.After.ExecuteAfterSeconds) * time.Second
 		sendAfter := time.Now().Add(delay)
 
@@ -65,7 +65,7 @@ func (s *Server) PushRequest(ctx context.Context, req *schedulerv1.Request) (*sc
 			taskID,
 		)
 
-	case *schedulerv1.Request_AfterRepeat:
+	case *pb.Request_AfterRepeat:
 		delay := time.Duration(sch.AfterRepeat.ExecuteAfterSeconds) * time.Second
 		sendAfter := time.Now().Add(delay)
 		repeatTimes := int(sch.AfterRepeat.RepeatTimes)
@@ -98,7 +98,7 @@ func (s *Server) PushRequest(ctx context.Context, req *schedulerv1.Request) (*sc
 		return nil, status.Error(codes.Internal, "internal server error")
 	}
 
-	return &schedulerv1.Response{
+	return &pb.Response{
 		Status: "PENDING",
 		TaskId: fmt.Sprintf("Your ID: %s", taskID),
 	}, nil
