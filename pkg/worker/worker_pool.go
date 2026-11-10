@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -14,6 +15,7 @@ import (
 type WorkerPool struct {
 	pgxpool *pgxpool.Pool
 
+	wg       sync.WaitGroup
 	handlers map[string]TaskHandler
 }
 
@@ -21,6 +23,7 @@ type WorkerPool struct {
 func NewWorkerPool(pool *pgxpool.Pool) *WorkerPool {
 	return &WorkerPool{
 		pgxpool:  pool,
+		wg:       sync.WaitGroup{},
 		handlers: make(map[string]TaskHandler),
 	}
 }
@@ -30,17 +33,42 @@ type TaskHandler func(ctx context.Context, taskId string, payload []byte) error
 
 // Start launches chosen amount of Workers, wich are going to
 // observe DataBase and use registered functions when the time comes
-func (wp *WorkerPool) Start(ctx context.Context, workersNum int) error {
+func (wp *WorkerPool) Start(ctx context.Context, cfg *Config) error {
+	workersNum := cfg.WorkerNum
+
 	for range workersNum {
-		go func() {
+		wp.wg.Go(func() {
 			wp.workerLoop(ctx)
-		}()
+		})
 	}
 	return nil
 }
 
-// RegisterFunc resgisters new function in map, making it visible for
-// workers, who are going to activate them
+// Wait should be used after <-ctx.Done() to make gracefull shutdown
+// There are 2 possibile outcomes:
+//
+//	all goroutines finish with time to spare and gracefull shutdown succeed
+//
+//	timeLimit finishes earlier and error is returned
+func (wp *WorkerPool) Wait(timeLimit time.Duration) error {
+	done := make(chan any)
+	tm := time.NewTimer(timeLimit)
+
+	go func() {
+		wp.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		tm.Stop()
+		return nil
+	case <-tm.C:
+		return fmt.Errorf("timeout: worker pool did not finish in time")
+	}
+
+}
+
 func (wp *WorkerPool) RegisterFunc(taskType string, handler TaskHandler) {
 	wp.handlers[taskType] = handler
 }
@@ -55,6 +83,10 @@ func (wp *WorkerPool) workerLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 
+			if err := ctx.Err(); err != nil {
+				return
+			}
+
 			if err := wp.processNextTask(ctx); err != nil {
 				slog.ErrorContext(ctx, "failed to process new task", "err", err)
 			}
@@ -63,13 +95,15 @@ func (wp *WorkerPool) workerLoop(ctx context.Context) {
 }
 
 func (wp *WorkerPool) processNextTask(ctx context.Context) error {
-	tx, err := wp.pgxpool.Begin(ctx)
+	nonCancelCtx := context.WithoutCancel(ctx)
+
+	tx, err := wp.pgxpool.Begin(nonCancelCtx)
 	if err != nil {
 		return fmt.Errorf("failed to make Begin transaction: %w", err)
 	}
 
 	defer func() {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback(nonCancelCtx)
 	}()
 
 	var (
@@ -94,7 +128,7 @@ func (wp *WorkerPool) processNextTask(ctx context.Context) error {
 			RETURNING id, task_type, payload, repeat_times, repeat_every;
 			`
 
-	err = tx.QueryRow(ctx, query).Scan(
+	err = tx.QueryRow(nonCancelCtx, query).Scan(
 		&id,
 		&taskType,
 		&payload,
@@ -110,24 +144,82 @@ func (wp *WorkerPool) processNextTask(ctx context.Context) error {
 
 	handler, exists := wp.handlers[taskType]
 	if !exists {
-		return fmt.Errorf("wrong task type recieved: %s, id: %s", taskType, id)
+
+		query = `
+			UPDATE scheduler
+			SET status = 'failed',
+			error_cause = $2
+			WHERE id = $1;
+		`
+		var errCommit error
+
+		_, errExec := tx.Exec(nonCancelCtx, query, id, fmt.Sprintf("no such handler registered: %s", taskType))
+		if errExec == nil {
+			errCommit = tx.Commit(nonCancelCtx)
+		}
+		return errors.Join(
+			errExec,
+			errCommit,
+			fmt.Errorf("wrong task type recieved: %s, id: %s", taskType, id),
+		)
+
+		// Если не правильно ввел то меня в лупу завело и бесконечно теперь делается с ошибкой
+		// сделать тут sql query чтобы нокнуть нафиг это
+		// А потом мб сделать reids где в кеш будет сохранятся список всех зареганых функций и чтобы на статусе http запроса можно было сказать что нема такого
+		// Но прейдется сделать так что api depends_on worker_pool ибо только там можно будет в редис добавить зареганые функции!
 	}
 	handlerErr := handler(ctx, id, payload)
 
 	switch {
 	case handlerErr != nil:
-		return fmt.Errorf("handler failed: %w", err)
+		if errors.Is(handlerErr, context.Canceled) {
+			return nil
+		}
+
+		query = `
+			UPDATE scheduler
+			SET 
+				status = CASE
+					WHEN fail_times <= 1 THEN 'failed'
+					ELSE 'pending'
+				END,
+				
+				send_at = CASE 
+					WHEN fail_times > 1 THEN NOW() + (fail_timeout * INTERVAL '1 second')
+					ELSE send_at
+				END,
+
+				fail_times = CASE
+					WHEN fail_times > 1 THEN fail_times - 1
+					ELSE fail_times
+				END
+
+				WHERE id = $1;
+		`
+		var errCommit error
+
+		_, errExec := tx.Exec(nonCancelCtx, query, id)
+		if errExec == nil {
+			errCommit = tx.Commit(nonCancelCtx)
+		}
+
+		return errors.Join(
+			errExec,
+			errCommit,
+			fmt.Errorf("handler failed: %w", handlerErr),
+		)
 
 	case repeatTimes > 0:
 		query = `
 				UPDATE scheduler
 				SET status = 'pending',
 					repeat_times = repeat_times - 1,
-					send_at = NOW() + (repeat_every * INTERVAL '1 second')
+					send_at = NOW() + (repeat_every * INTERVAL '1 second'),
+					fail_times = fail_initial_attempts
 				WHERE id = $1;
 					`
 
-		_, err = tx.Exec(ctx, query, id)
+		_, err = tx.Exec(nonCancelCtx, query, id)
 		if err != nil {
 			return fmt.Errorf("failed to UPDATE repeat_times: %w, id: %s", err, id)
 		}
@@ -139,13 +231,13 @@ func (wp *WorkerPool) processNextTask(ctx context.Context) error {
 				WHERE id = $1;
 				`
 
-		_, err = tx.Exec(ctx, query, id)
+		_, err = tx.Exec(nonCancelCtx, query, id)
 		if err != nil {
 			return fmt.Errorf("failed to set status completed: %w, id: %s", err, id)
 		}
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(nonCancelCtx); err != nil {
 		return fmt.Errorf("failed to set status completed: %w", err)
 	}
 
