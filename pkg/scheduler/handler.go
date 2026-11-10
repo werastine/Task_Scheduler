@@ -11,6 +11,8 @@ type Sender interface {
 		taskType string,
 		payload []byte,
 		taskID string,
+		failTimes int,
+		failTimeout time.Duration,
 	) error
 
 	SendNowWithRepeat(
@@ -20,6 +22,8 @@ type Sender interface {
 		taskType string,
 		payload []byte,
 		taskID string,
+		failTimes int,
+		failTimeout time.Duration,
 	) error
 
 	SendAfter(
@@ -28,6 +32,8 @@ type Sender interface {
 		taskType string,
 		payload []byte,
 		taskID string,
+		failTimes int,
+		failTimeout time.Duration,
 	) error
 
 	SendAfterWithRepeat(
@@ -38,5 +44,7 @@ type Sender interface {
 		taskType string,
 		payload []byte,
 		taskID string,
+		failTimes int,
+		failTimeout time.Duration,
 	) error
 }

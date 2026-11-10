@@ -24,11 +24,14 @@ func (e *Engine) SendNow(
 	taskType string,
 	payload []byte,
 	taskID string,
+	failRepeat int,
+	failTimeout time.Duration,
+
 ) error {
 
 	query := `
-	INSERT INTO scheduler (id, payload, task_type, send_at)
-	VALUES ($1, $2, $3, $4);
+	INSERT INTO scheduler (id, payload, task_type, send_at, fail_times, fail_timeout, fail_initial_attempts)
+	VALUES ($1, $2, $3, $4, $5, $6, $7);
 	`
 
 	_, err := e.pool.Exec(
@@ -38,6 +41,9 @@ func (e *Engine) SendNow(
 		payload,
 		taskType,
 		time.Now(),
+		failRepeat,
+		failTimeout.Seconds(),
+		failRepeat,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to execute SQL query: %w", err)
@@ -53,11 +59,13 @@ func (e *Engine) SendNowWithRepeat(
 	taskType string,
 	payload []byte,
 	taskID string,
+	failRepeat int,
+	failTimeout time.Duration,
 ) error {
 
 	query := `
-	INSERT INTO scheduler (id, payload, task_type, send_at, repeat_times, repeat_every)
-	VALUES ($1, $2, $3, $4, $5, $6);
+	INSERT INTO scheduler (id, payload, task_type, send_at, repeat_times, repeat_every, fail_times, fail_timeout, fail_initial_attempts)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
 	`
 
 	_, err := e.pool.Exec(
@@ -68,7 +76,10 @@ func (e *Engine) SendNowWithRepeat(
 		taskType,
 		time.Now(),
 		repeatTimes,
-		repeatEvery,
+		repeatEvery.Seconds(),
+		failRepeat,
+		failTimeout.Seconds(),
+		failRepeat,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to execute SQL query: %w", err)
@@ -83,11 +94,13 @@ func (e *Engine) SendAfter(
 	taskType string,
 	payload []byte,
 	taskID string,
+	failRepeat int,
+	failTimeout time.Duration,
 ) error {
 
 	query := `
-	INSERT INTO scheduler (id, payload, task_type, send_at)
-	VALUES ($1, $2, $3, $4);`
+	INSERT INTO scheduler (id, payload, task_type, send_at, fail_times, fail_timeout, fail_initial_attempts)
+	VALUES ($1, $2, $3, $4, $5, $6, $7);`
 
 	_, err := e.pool.Exec(
 		ctx,
@@ -96,6 +109,9 @@ func (e *Engine) SendAfter(
 		payload,
 		taskType,
 		sendAfter,
+		failRepeat,
+		failTimeout.Seconds(),
+		failRepeat,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to execute SQL query: %w", err)
@@ -112,11 +128,13 @@ func (e *Engine) SendAfterWithRepeat(
 	taskType string,
 	payload []byte,
 	taskID string,
+	failRepeat int,
+	failTimeout time.Duration,
 ) error {
 
 	query := `
-	INSERT INTO scheduler (id, payload, task_type, send_at, repeat_times, repeat_every)
-	VALUES ($1, $2, $3, $4, $5, $6);`
+	INSERT INTO scheduler (id, payload, task_type, send_at, repeat_times, repeat_every, fail_times, fail_timeout, fail_initial_attempts)
+	VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8);`
 
 	_, err := e.pool.Exec(
 		ctx,
@@ -126,7 +144,10 @@ func (e *Engine) SendAfterWithRepeat(
 		taskType,
 		sendAfter,
 		repeatTimes,
-		repeatEvery,
+		repeatEvery.Seconds(),
+		failRepeat,
+		failTimeout.Seconds(),
+		failRepeat,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to execute SQL query: %w", err)
