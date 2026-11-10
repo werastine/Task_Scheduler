@@ -18,11 +18,13 @@ type Server struct {
 	pb.UnimplementedSchedulerServer
 
 	sender scheduler.Sender
+	cfg    *scheduler.Config
 }
 
-func NewServer(engine *scheduler.Engine) *Server {
+func NewServer(engine *scheduler.Engine, config *scheduler.Config) *Server {
 	return &Server{
 		sender: engine,
+		cfg:    config,
 	}
 }
 
@@ -38,6 +40,8 @@ func (s *Server) PushRequest(ctx context.Context, req *pb.Request) (*pb.Response
 			req.GetType(),
 			req.GetPayload(),
 			taskID,
+			s.cfg.FailRepeat,
+			s.cfg.FailTimeout,
 		)
 
 	case *pb.Request_NowRepeat:
@@ -51,6 +55,8 @@ func (s *Server) PushRequest(ctx context.Context, req *pb.Request) (*pb.Response
 			req.Type,
 			req.Payload,
 			taskID,
+			s.cfg.FailRepeat,
+			s.cfg.FailTimeout,
 		)
 
 	case *pb.Request_After:
@@ -63,6 +69,8 @@ func (s *Server) PushRequest(ctx context.Context, req *pb.Request) (*pb.Response
 			req.Type,
 			req.Payload,
 			taskID,
+			s.cfg.FailRepeat,
+			s.cfg.FailTimeout,
 		)
 
 	case *pb.Request_AfterRepeat:
@@ -79,6 +87,8 @@ func (s *Server) PushRequest(ctx context.Context, req *pb.Request) (*pb.Response
 			req.Type,
 			req.Payload,
 			taskID,
+			s.cfg.FailRepeat,
+			s.cfg.FailTimeout,
 		)
 
 	default:
