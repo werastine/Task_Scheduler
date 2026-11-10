@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"os"
 
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/werastine/Task_Scheduler/pkg/scheduler"
 )
 
