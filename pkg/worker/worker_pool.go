@@ -2,11 +2,13 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -92,4 +94,25 @@ func (wp *WorkerPool) workerLoop(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// MarkTaskFailed marks task as failed and makes commit
+func (wp *WorkerPool) markTaskFailed(nonCancelCtx context.Context, td *TaskData, tx pgx.Tx, errorCause string) error {
+	query := `
+			UPDATE scheduler
+			SET status = 'failed',
+			error_cause = $2
+			WHERE id = $1;
+		`
+	var errCommit error
+
+	_, errExec := tx.Exec(nonCancelCtx, query, td.id, errorCause)
+	if errExec == nil {
+		errCommit = tx.Commit(nonCancelCtx)
+	}
+
+	return errors.Join(
+		errExec,
+		errCommit,
+	)
 }
