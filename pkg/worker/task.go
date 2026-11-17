@@ -31,20 +31,13 @@ func (wp *WorkerPool) processNextTask(ctx context.Context) error {
 		_ = tx.Rollback(nonCancelCtx)
 	}()
 
-	td, err := taskTaker(nonCancelCtx, tx)
+	td, err := takeNextTask(nonCancelCtx, tx)
 	if err != nil {
 		return fmt.Errorf("taskTaker func failed: %w", err)
 	}
 	if td == nil {
 		return nil
 	}
-
-	// ----------------- \\
-	// Сделать checkIfExists() чтобы она не зависила от wp., чтобы только функция processNextTask могла вызывать то что ей надо!!!
-	// Если не правильно ввел то меня в лупу завело и бесконечно теперь делается с ошибкой (ибо фильтр работает так что каждый воркер будет пытатся взять одну и ту же задачу которая завершается ошибкой ибо there is no registered send_message func)
-	// сделать тут sql query чтобы нокнуть нафиг это
-	// А потом мб сделать reids где в кеш будет сохранятся список всех зареганых функций и чтобы на статусе http запроса можно было сказать что нема такого
-	// Но прейдется сделать так что api depends_on worker_pool ибо только там можно будет в редис добавить зареганые функции!
 
 	handler, exists := wp.handlers[td.taskType]
 	if !exists {
@@ -64,51 +57,26 @@ func (wp *WorkerPool) processNextTask(ctx context.Context) error {
 			return nil
 		}
 
-		err := setFailedOrInterval(nonCancelCtx, td, tx)
+		err := handlerFailCase(nonCancelCtx, td, tx)
 		return errors.Join(
 			fmt.Errorf("handler failed: %w", handlerErr),
 			err,
 		)
 
 	case td.repeatTimes > 0:
-		query := `
-				UPDATE scheduler
-				SET status = 'pending',
-					repeat_times = repeat_times - 1,
-					send_at = NOW() + (repeat_every * INTERVAL '1 second'),
-					fail_times = fail_initial_attempts
-				WHERE id = $1;
-					`
-
-		_, err = tx.Exec(nonCancelCtx, query, td.id)
-		if err != nil {
-			return fmt.Errorf("failed to UPDATE repeat_times: %w, id: %s", err, td.id)
+		if err := taskRepeatedCase(nonCancelCtx, td, tx); err != nil {
+			return fmt.Errorf("taskRepeatedCase func failed: %w", err)
 		}
 
 	default:
-		query := `
-				UPDATE scheduler
-				SET status = 'completed'
-				WHERE id = $1;
-				`
-
-		_, err = tx.Exec(nonCancelCtx, query, td.id)
-		if err != nil {
-			return fmt.Errorf("failed to set status completed: %w, id: %s", err, td.id)
+		if err := wp.markTaskCompleted(nonCancelCtx, td, tx); err != nil {
+			return fmt.Errorf("markTaskCompleted func failed: %w", err)
 		}
 	}
-
-	if err := tx.Commit(nonCancelCtx); err != nil {
-		return fmt.Errorf("failed to set status completed: %w", err)
-	}
-
 	return nil
 }
 
-// Firstly make tests, then commit
-// Then start separeting code into functions (One query - per function)
-
-func taskTaker(nonCancelCtx context.Context, tx pgx.Tx) (*TaskData, error) {
+func takeNextTask(nonCancelCtx context.Context, tx pgx.Tx) (*TaskData, error) {
 	td := &TaskData{}
 
 	query := `
@@ -136,12 +104,12 @@ func taskTaker(nonCancelCtx context.Context, tx pgx.Tx) (*TaskData, error) {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
-		return td, fmt.Errorf("failed to scan variables: %w", err)
+		return nil, fmt.Errorf("failed to scan variables: %w", err)
 	}
 	return td, nil
 }
 
-func setFailedOrInterval(nonCancelCtx context.Context, td *TaskData, tx pgx.Tx) error {
+func handlerFailCase(nonCancelCtx context.Context, td *TaskData, tx pgx.Tx) error {
 
 	query := `
 			UPDATE scheduler
@@ -174,4 +142,24 @@ func setFailedOrInterval(nonCancelCtx context.Context, td *TaskData, tx pgx.Tx) 
 		errExec,
 		errCommit,
 	)
+}
+
+func taskRepeatedCase(nonCancelCtx context.Context, td *TaskData, tx pgx.Tx) error {
+	query := `
+				UPDATE scheduler
+				SET status = 'pending',
+					repeat_times = repeat_times - 1,
+					send_at = NOW() + (repeat_every * INTERVAL '1 second'),
+					fail_times = fail_initial_attempts
+				WHERE id = $1;
+					`
+
+	_, err := tx.Exec(nonCancelCtx, query, td.id)
+	if err != nil {
+		return fmt.Errorf("failed to UPDATE repeat_times: %w, id: %s", err, td.id)
+	}
+	if err := tx.Commit(nonCancelCtx); err != nil {
+		return fmt.Errorf("failed commit changes: %w", err)
+	}
+	return nil
 }
