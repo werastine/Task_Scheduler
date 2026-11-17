@@ -96,7 +96,7 @@ func (wp *WorkerPool) workerLoop(ctx context.Context) {
 	}
 }
 
-// MarkTaskFailed marks task as failed and makes commit
+// markTaskFailed marks task as failed and makes commit
 func (wp *WorkerPool) markTaskFailed(nonCancelCtx context.Context, td *TaskData, tx pgx.Tx, errorCause string) error {
 	query := `
 			UPDATE scheduler
@@ -115,4 +115,23 @@ func (wp *WorkerPool) markTaskFailed(nonCancelCtx context.Context, td *TaskData,
 		errExec,
 		errCommit,
 	)
+}
+
+// markTaskCompleted marks task as completed and makes commit
+func (wp *WorkerPool) markTaskCompleted(nonCancelCtx context.Context, td *TaskData, tx pgx.Tx) error {
+	query := `
+				UPDATE scheduler
+				SET status = 'completed'
+				WHERE id = $1;
+				`
+	_, err := tx.Exec(nonCancelCtx, query, td.id)
+	if err != nil {
+		return fmt.Errorf("failed to set status completed: %w, id: %s", err, td.id)
+	}
+
+	if err := tx.Commit(nonCancelCtx); err != nil {
+		return fmt.Errorf("failed commit changes: %w", err)
+	}
+
+	return nil
 }
