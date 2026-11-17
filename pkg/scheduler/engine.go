@@ -134,7 +134,7 @@ func (e *Engine) SendAfterWithRepeat(
 
 	query := `
 	INSERT INTO scheduler (id, payload, task_type, send_at, repeat_times, repeat_every, fail_times, fail_timeout, fail_initial_attempts)
-	VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8);`
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);`
 
 	_, err := e.pool.Exec(
 		ctx,
